@@ -3,3 +3,10 @@
 ".\server\node_modules\@node-llama-cpp\win-x64-cuda\bins\win-x64-cuda\ggml-cuda.dll"
 ".\server\node_modules\@node-llama-cpp\win-x64-cuda-ext\bins\win-x64-cuda\fallback\ggml-cuda.dll"
 ".\server\node_modules\@node-llama-cpp\win-x64-vulkan\bins\win-x64-vulkan\ggml-vulkan.dll"
+
+".\.git\lfs\objects\35\4b\354be82b58dd8c7ccb99941eb38120ab286a07880df0f9c093a7446169b2c36d"
+".\.git\lfs\objects\b2\22\b222f2f7762eb4ce3c06309fa9b708299cf77df5c15fffd104d9866425a97483"
+".\.git\lfs\objects\ba\0d\ba0dca0f3c4f41c827e8a87e894988925c58949c78e70856d2b24e4cfdb16e02"
+".\server\node_modules\@node-llama-cpp\win-x64-cuda\bins\win-x64-cuda\ggml-cuda.dll"
+".\server\node_modules\@node-llama-cpp\win-x64-cuda-ext\bins\win-x64-cuda\fallback\ggml-cuda.dll"
+".\server\node_modules\@node-llama-cpp\win-x64-vulkan\bins\win-x64-vulkan\ggml-vulkan.dll"
