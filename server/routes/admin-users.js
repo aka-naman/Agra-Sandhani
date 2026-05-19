@@ -27,6 +27,12 @@ router.delete('/:userId', async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
+        // Log the user deletion
+        await pool.query(
+            'INSERT INTO system_logs (action_type, user_id, details) VALUES ($1, $2, $3)',
+            ['delete_user', req.user.id, JSON.stringify({ deleted_username: result.rows[0].username, deleted_user_id: targetUserId })]
+        );
+
         res.json({ message: `User "${result.rows[0].username}" and all associated data deleted successfully` });
     } catch (err) {
         console.error('Admin delete user error:', err);

@@ -129,9 +129,9 @@ router.get('/', authenticate, async (req, res) => {
             ) fv ON true
             LEFT JOIN LATERAL (
                 SELECT COUNT(*)::int as count FROM submissions
-                WHERE form_version_id = fv.id
+                WHERE form_version_id = fv.id AND deleted_at IS NULL
             ) sub_count ON true
-            WHERE (u.role != 'admin') OR (f.user_id = $1::int)
+            WHERE ((u.role != 'admin') OR (f.user_id = $1::int)) AND f.deleted_at IS NULL
             ORDER BY u.username ASC, f.created_at DESC`,
             [userId, isAdmin]
         );
@@ -156,6 +156,13 @@ router.post('/', authenticate, async (req, res) => {
         const formResult = await client.query('INSERT INTO forms (name, user_id) VALUES ($1, $2) RETURNING *', [name.trim(), req.user.id]);
         const form = formResult.rows[0];
         await client.query('INSERT INTO form_versions (form_id, version_number) VALUES ($1, 1)', [form.id]);
+
+        // Log form creation
+        await client.query(
+            'INSERT INTO system_logs (action_type, user_id, details) VALUES ($1, $2, $3)',
+            ['create_form', req.user.id, JSON.stringify({ form_id: form.id, form_name: form.name })]
+        );
+
         await client.query('COMMIT');
         res.status(201).json({ form });
     } catch (err) {
@@ -206,6 +213,16 @@ router.post('/:id/duplicate', authenticate, async (req, res) => {
         }
         await client.query('COMMIT');
         console.log(`[DEBUG DUPLICATE] Success!`);
+
+        // Log form duplication
+        await client.query(
+            'INSERT INTO system_logs (action_type, user_id, details) VALUES ($1, $2, $3)',
+            ['duplicate_form', req.user.id, JSON.stringify({ 
+                from_form_id: req.params.id, 
+                to_form_id: newForm.id,
+                form_name: newForm.name
+            })]
+        );
 
         // Fetch the full form details including the version info we just created
         const finalResult = await client.query(
@@ -316,6 +333,16 @@ router.post('/:id/lock', authenticate, async (req, res) => {
         const ownership = await checkFormOwnership(req.params.id, req.user.id, req.user.role);
         if (!ownership.hasAccess) return res.status(403).json({ error: 'Permission denied' });
         await pool.query('UPDATE forms SET is_locked = true WHERE id = $1', [req.params.id]);
+        
+        // Log form lock
+        await pool.query(
+            'INSERT INTO system_logs (action_type, user_id, details) VALUES ($1, $2, $3)',
+            ['lock_form', req.user.id, JSON.stringify({ 
+                form_id: req.params.id,
+                form_name: (await pool.query('SELECT name FROM forms WHERE id = $1', [req.params.id])).rows[0].name
+            })]
+        );
+
         res.json({ message: 'Locked' });
     } catch (err) { res.status(500).json({ error: 'Lock failed' }); }
 });
@@ -348,20 +375,47 @@ router.put('/:id', authenticate, async (req, res) => {
         const { name } = req.body;
         const ownership = await checkFormOwnership(req.params.id, req.user.id, req.user.role);
         if (!ownership.hasAccess) return res.status(403).json({ error: 'Denied' });
+        
+        const oldFormResult = await pool.query('SELECT name FROM forms WHERE id = $1', [req.params.id]);
+        const oldName = oldFormResult.rows[0].name;
+
         const result = await pool.query('UPDATE forms SET name = $1 WHERE id = $2 RETURNING *', [name.trim(), req.params.id]);
+        
+        // Log form rename
+        await pool.query(
+            'INSERT INTO system_logs (action_type, user_id, details) VALUES ($1, $2, $3)',
+            ['rename_form', req.user.id, JSON.stringify({ 
+                form_id: req.params.id, 
+                old_name: oldName, 
+                new_name: name.trim() 
+            })]
+        );
+
         res.json({ form: result.rows[0] });
     } catch (err) { res.status(500).json({ error: 'Rename failed' }); }
 });
 
 /**
- * DELETE /api/forms/:id — Delete
+ * DELETE /api/forms/:id — Soft Delete Form
  */
 router.delete('/:id', authenticate, async (req, res) => {
     try {
         const ownership = await checkFormOwnership(req.params.id, req.user.id, req.user.role);
         if (!ownership.hasAccess) return res.status(403).json({ error: 'Denied' });
-        await pool.query('DELETE FROM forms WHERE id = $1', [req.params.id]);
-        res.json({ message: 'Deleted' });
+        
+        const formResult = await pool.query('SELECT name FROM forms WHERE id = $1', [req.params.id]);
+        const formName = formResult.rows[0].name;
+
+        // Use soft delete instead of hard delete
+        await pool.query('UPDATE forms SET deleted_at = NOW() WHERE id = $1', [req.params.id]);
+        
+        // Log form deletion
+        await pool.query(
+            'INSERT INTO system_logs (action_type, user_id, details) VALUES ($1, $2, $3)',
+            ['delete_form', req.user.id, JSON.stringify({ form_id: req.params.id, form_name: formName })]
+        );
+
+        res.json({ message: 'Form moved to trash' });
     } catch (err) { res.status(500).json({ error: 'Delete failed' }); }
 });
 
@@ -390,9 +444,9 @@ router.get('/admin/all', authenticate, async (req, res) => {
             ) fv ON true
             LEFT JOIN LATERAL (
               SELECT COUNT(*)::int as count FROM submissions
-              WHERE form_version_id = fv.id
+              WHERE form_version_id = fv.id AND deleted_at IS NULL
             ) sub_count ON true
-            WHERE (u.role != 'admin') OR (f.user_id = $1::int)
+            WHERE ((u.role != 'admin') OR (f.user_id = $1::int)) AND f.deleted_at IS NULL
             ORDER BY f.created_at DESC
         `, [req.user.id]);
 
@@ -440,9 +494,9 @@ router.get('/admin/user/:userId', authenticate, async (req, res) => {
             ) fv ON true
             LEFT JOIN LATERAL (
               SELECT COUNT(*)::int as count FROM submissions
-              WHERE form_version_id = fv.id
+              WHERE form_version_id = fv.id AND deleted_at IS NULL
             ) sub_count ON true
-            WHERE f.user_id = $1
+            WHERE f.user_id = $1 AND f.deleted_at IS NULL
             ORDER BY f.created_at DESC
         `, [userId]);
 
@@ -463,16 +517,16 @@ router.get('/admin/stats', authenticate, async (req, res) => {
         }
 
         const totalUsers = await pool.query('SELECT COUNT(*) as count FROM users');
-        const totalForms = await pool.query('SELECT COUNT(*) as count FROM forms');
-        const totalSubmissions = await pool.query('SELECT COUNT(*) as count FROM submissions');
+        const totalForms = await pool.query('SELECT COUNT(*) as count FROM forms WHERE deleted_at IS NULL');
+        const totalSubmissions = await pool.query('SELECT COUNT(*) as count FROM submissions WHERE deleted_at IS NULL');
 
         const userStats = await pool.query(`
             SELECT u.id, u.username, u.role, u.created_at,
-              (SELECT COUNT(*) FROM forms WHERE user_id = u.id) as form_count,
+              (SELECT COUNT(*) FROM forms WHERE user_id = u.id AND deleted_at IS NULL) as form_count,
               (SELECT COUNT(*) FROM submissions s
                INNER JOIN form_versions fv ON s.form_version_id = fv.id
                INNER JOIN forms f ON fv.form_id = f.id
-               WHERE f.user_id = u.id) as submission_count
+               WHERE f.user_id = u.id AND s.deleted_at IS NULL AND f.deleted_at IS NULL) as submission_count
             FROM users u
             ORDER BY u.created_at DESC
         `);

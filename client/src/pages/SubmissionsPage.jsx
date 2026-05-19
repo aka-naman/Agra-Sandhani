@@ -24,6 +24,20 @@ export default function SubmissionsPage() {
     // Audit State
     const [auditLog, setAuditLog] = useState(null); // { submissionId, entries: [] }
 
+    // PDF Export Modal State
+    const [showPdfModal, setShowPdfModal] = useState(false);
+    const [selectedPdfFields, setSelectedPdfFields] = useState([]);
+    const [pdfGroupBy, setPdfGroupBy] = useState('');
+    const [pdfGenerating, setPdfGenerating] = useState(false);
+
+    // Excel Export Modal State
+    const [showExcelModal, setShowExcelModal] = useState(false);
+    const [excelOptions, setExcelOptions] = useState({
+        at: true,
+        by: true,
+        remarks: false
+    });
+
     const hasCgpa = fields.some(f => f.type === 'cgpa_converter');
     const hasBranch = fields.some(f => f.type === 'branch');
 
@@ -109,11 +123,17 @@ export default function SubmissionsPage() {
         return val ? val.value : '';
     };
 
-    const handleExport = async (includeRemarks = false) => {
+    const handleExport = async (includeRemarks = false, includeAt = false, includeBy = false) => {
         try {
             // Using params object to ensure proper encoding of search term
             const res = await api.get(`/export/${formId}`, { 
-                params: { search: searchTerm, sortMode, includeRemarks },
+                params: { 
+                    search: searchTerm, 
+                    sortMode, 
+                    includeRemarks,
+                    includeAt,
+                    includeBy
+                },
                 responseType: 'blob' 
             });
             const url = window.URL.createObjectURL(new Blob([res.data]));
@@ -124,8 +144,50 @@ export default function SubmissionsPage() {
             link.click();
             link.remove();
             window.URL.revokeObjectURL(url);
+            setShowExcelModal(false); // Close modal if it was open
         } catch {
             alert('Export failed');
+        }
+    };
+
+    const handlePdfExport = async () => {
+        if (selectedPdfFields.length === 0) {
+            alert('Please select at least one field to export');
+            return;
+        }
+        setPdfGenerating(true);
+        
+        // Handle specialized grouping
+        let finalGroupBy = pdfGroupBy;
+        let finalSortMode = sortMode;
+        if (pdfGroupBy === '__branch_cgpa__') {
+            const branchField = fields.find(f => f.type === 'branch');
+            finalGroupBy = branchField ? branchField.label : null;
+            finalSortMode = 'branch_cgpa';
+        }
+
+        try {
+            const res = await api.post(`/export/pdf/${formId}`, {
+                selectedFields: selectedPdfFields,
+                groupBy: finalGroupBy || null,
+                sortMode: finalSortMode,
+                searchTerm
+            }, { responseType: 'blob' });
+
+            const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${formName.replace(/[^a-zA-Z0-9]/g, '_')}_export.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            setShowPdfModal(false);
+        } catch (err) {
+            console.error(err);
+            alert('PDF generation failed');
+        } finally {
+            setPdfGenerating(false);
         }
     };
 
@@ -168,16 +230,22 @@ export default function SubmissionsPage() {
                         <select 
                             className="form-input export-select" 
                             onChange={(e) => {
-                                if (e.target.value) {
-                                    handleExport(e.target.value === 'remarks');
-                                    e.target.value = ''; // Reset select
+                                if (e.target.value === 'pdf') {
+                                    setSelectedPdfFields(fields.map(f => f.label));
+                                    setShowPdfModal(true);
+                                } else if (e.target.value === 'excel_custom') {
+                                    setShowExcelModal(true);
+                                } else if (e.target.value === 'standard') {
+                                    handleExport(false);
                                 }
+                                e.target.value = ''; // Reset select
                             }}
                             defaultValue=""
                         >
                             <option value="" disabled>📥 Export Options</option>
-                            <option value="standard">Standard Export</option>
-                            <option value="remarks">Export with Missing Entries</option>
+                            <option value="standard">Excel: Standard</option>
+                            <option value="excel_custom">⚙️ Excel: Custom...</option>
+                            <option value="pdf">📄 PDF: Custom Landscape</option>
                         </select>
                     </div>
                 </div>
@@ -314,6 +382,158 @@ export default function SubmissionsPage() {
                         </div>
                         <div className="modal-actions-sticky">
                             <button className="btn btn-primary" onClick={() => setAuditLog(null)}>Close History</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* PDF Export Modal */}
+            {showPdfModal && (
+                <div className="modal-overlay" onClick={() => setShowPdfModal(false)}>
+                    <div className="modal glass-card modal-fixed-height" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h2>📄 Custom PDF Export (Landscape)</h2>
+                            <p className="modal-subtitle">Select fields and grouping for your professional PDF report</p>
+                        </div>
+                        <div className="modal-body scrollable-content">
+                            <div className="form-section">
+                                <h3>1. Select Fields to Include</h3>
+                                <div className="pdf-field-selector grid grid-cols-2 gap-2">
+                                    {fields.map(f => (
+                                        <label key={f.id} className="flex items-center gap-2 pointer glass-card p-2 hover-bright">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={selectedPdfFields.includes(f.label)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setSelectedPdfFields([...selectedPdfFields, f.label]);
+                                                    else setSelectedPdfFields(selectedPdfFields.filter(label => label !== f.label));
+                                                }}
+                                            />
+                                            <span style={{ fontSize: '0.9rem' }}>{f.label}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="form-section mt-4">
+                                <h3>2. Grouping Options</h3>
+                                <div className="form-group">
+                                    <label>Group By (Starts each group on a fresh page)</label>
+                                    <select 
+                                        className="form-input" 
+                                        value={pdfGroupBy} 
+                                        onChange={(e) => setPdfGroupBy(e.target.value)}
+                                    >
+                                        <option value="">None (Continuous Table)</option>
+                                        {hasBranch && hasCgpa && (
+                                            <option value="__branch_cgpa__">🎯 Branch (A-Z) + CGPA (High-Low)</option>
+                                        )}
+                                        {fields.filter(f => ['dropdown', 'branch', 'zone_group', 'university_autocomplete'].includes(f.type)).map(f => (
+                                            <option key={f.id} value={f.label}>{f.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="form-section mt-4">
+                                <h3>3. Current Sorting</h3>
+                                <p className="text-muted" style={{ fontSize: '0.85rem' }}>
+                                    The PDF will follow your current view's sorting: <strong>{
+                                        sortMode === 'cgpa_desc' ? 'CGPA High to Low' : 
+                                        sortMode === 'branch_alpha' ? 'Branch Alphabetical' :
+                                        sortMode === 'branch_cgpa' ? 'Branch + CGPA Desc' : 'Newest First'
+                                    }</strong>.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="modal-actions-sticky">
+                            <button className="btn btn-ghost" onClick={() => setShowPdfModal(false)}>Cancel</button>
+                            <button className="btn btn-primary" onClick={handlePdfExport} disabled={pdfGenerating}>
+                                {pdfGenerating ? <span className="spinner-sm"></span> : '🚀 Generate PDF'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Excel Export Modal */}
+            {showExcelModal && (
+                <div className="modal-overlay" onClick={() => setShowExcelModal(false)}>
+                    <div className="modal glass-card shadow-2xl" style={{ maxWidth: '650px', width: '95%' }} onClick={e => e.stopPropagation()}>
+                        <div className="modal-header border-b border-white-10 pb-4">
+                            <div className="flex justify-between items-center">
+                                <div>
+                                    <h2 className="text-xl font-bold">⚙️ Excel Export Configuration</h2>
+                                    <p className="modal-subtitle">Customize the system columns and data layers for your report</p>
+                                </div>
+                                <span className="badge badge-primary">XLSX Format</span>
+                            </div>
+                        </div>
+                        
+                        <div className="modal-body py-6 flex flex-col gap-2">
+                            <label className={`refined-option-card ${excelOptions.at ? 'active' : ''}`} style={{ padding: '0.75rem 1.25rem' }}>
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2 font-bold" style={{ fontSize: '0.95rem' }}>
+                                        <span>📅</span>
+                                        <span>Submitted At</span>
+                                    </div>
+                                    <div className="modal-subtitle" style={{ margin: '0.1rem 0 0 1.6rem', fontSize: '0.75rem', opacity: 0.9, color: 'var(--text-secondary)' }}>
+                                        Include the precise date and time of the entry
+                                    </div>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    className="custom-checkbox-input"
+                                    checked={excelOptions.at}
+                                    onChange={(e) => setExcelOptions({...excelOptions, at: e.target.checked})}
+                                />
+                            </label>
+
+                            <label className={`refined-option-card ${excelOptions.by ? 'active' : ''}`} style={{ padding: '0.75rem 1.25rem' }}>
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2 font-bold" style={{ fontSize: '0.95rem' }}>
+                                        <span>👤</span>
+                                        <span>Submitted By</span>
+                                    </div>
+                                    <div className="modal-subtitle" style={{ margin: '0.1rem 0 0 1.6rem', fontSize: '0.75rem', opacity: 0.9, color: 'var(--text-secondary)' }}>
+                                        Include the username of the person who recorded this
+                                    </div>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    className="custom-checkbox-input"
+                                    checked={excelOptions.by}
+                                    onChange={(e) => setExcelOptions({...excelOptions, by: e.target.checked})}
+                                />
+                            </label>
+
+                            <label className={`refined-option-card ${excelOptions.remarks ? 'active' : ''}`} style={{ padding: '0.75rem 1.25rem' }}>
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-2 font-bold" style={{ fontSize: '0.95rem' }}>
+                                        <span>⚠️</span>
+                                        <span>Missing Entries</span>
+                                    </div>
+                                    <div className="modal-subtitle" style={{ margin: '0.1rem 0 0 1.6rem', fontSize: '0.75rem', opacity: 0.9, color: 'var(--text-secondary)' }}>
+                                        Include internal remarks and validation notes
+                                    </div>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    className="custom-checkbox-input"
+                                    checked={excelOptions.remarks}
+                                    onChange={(e) => setExcelOptions({...excelOptions, remarks: e.target.checked})}
+                                />
+                            </label>
+                        </div>
+
+                        <div className="modal-footer pt-6 border-t border-white-10 flex justify-end gap-3">
+                            <button className="btn btn-ghost px-6" onClick={() => setShowExcelModal(false)}>Cancel</button>
+                            <button 
+                                className="btn btn-primary px-10 py-3 text-base font-bold" 
+                                onClick={() => handleExport(excelOptions.remarks, excelOptions.at, excelOptions.by)}
+                            >
+                                📥 Generate Excel Report
+                            </button>
                         </div>
                     </div>
                 </div>

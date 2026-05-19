@@ -5,6 +5,10 @@
    DESIGN TOKENS
    ═══════════════════════════════════════ */
 :root {
+  /* ... existing vars ... */
+  --accent-primary-rgb: 212, 175, 55;
+  --error-color-rgb: 239, 68, 68;
+
   /* Colors */
   --bg-primary: #000000;
   --bg-secondary: #121212;
@@ -49,6 +53,18 @@
   --font: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   
   --primary-color-rgb: 212, 175, 55;
+}
+
+.pie-chart-container {
+  flex-shrink: 0;
+}
+
+.pie-chart {
+  transition: transform 0.3s ease;
+}
+
+.stat-card:hover .pie-chart {
+  transform: scale(1.05);
 }
 
 /* ═══════════════════════════════════════
@@ -1997,6 +2013,78 @@ textarea.form-input {
 
 .gap-xs { gap: 0.4rem; }
 .gap-sm { gap: 0.75rem; }
+
+/* ═══════════════════════════════════════
+   PDF EXPORT MODAL HELPERS
+   ═══════════════════════════════════════ */
+.pdf-field-selector {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+}
+
+.form-section {
+  margin-top: 1.5rem;
+}
+
+.form-section h3 {
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.hover-bright:hover {
+  filter: brightness(1.2);
+}
+
+.pointer {
+  cursor: pointer;
+}
+
+.flex { display: flex; }
+.items-center { align-items: center; }
+.gap-2 { gap: 0.5rem; }
+.mt-4 { margin-top: 1rem; }
+.p-2 { padding: 0.5rem; }
+.grid { display: grid; }
+.grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.text-muted { color: var(--text-muted); }
+
+/* ═══════════════════════════════════════
+   REFINED OPTION CARDS
+   ═══════════════════════════════════════ */
+.refined-option-card {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.refined-option-card:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.refined-option-card.active {
+  background: rgba(var(--accent-primary-rgb), 0.1);
+  border-color: var(--accent-primary);
+}
+
+.custom-checkbox-input {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--accent-primary);
+}
+
+.border-white-10 {
+  border-color: rgba(255, 255, 255, 0.1);
+}
 
 .sub-label {
   font-size: 0.75rem;

@@ -18,9 +18,11 @@ const autocompleteRoutes = require('./routes/autocomplete');
 const adminUserRoutes = require('./routes/admin-users');
 const permissionRoutes = require('./routes/permissions');
 const notificationRoutes = require('./routes/notifications');
+const adminAnalyticsRoutes = require('./routes/admin-analytics');
 const explorerRoutes = require('./routes/explorer');
 
 const app = express();
+
 const PORT = parseInt(process.env.PORT, 10) || 5000;
 
 // Middleware
@@ -39,6 +41,7 @@ app.use('/api/admin/users', adminUserRoutes);
 app.use('/api/permissions', permissionRoutes);
 app.use('/api/autocomplete', autocompleteRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/admin-analytics', adminAnalyticsRoutes);
 app.use('/api/explorer', explorerRoutes);
 
 // Health check
@@ -83,6 +86,24 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🚀 Agra Sandhani API running at:`);
     console.log(`   Local:   http://localhost:${PORT}`);
     console.log(`   Network: http://${localIP}:${PORT}`);
+
+    // Periodic background tasks (every 24 hours)
+    setInterval(async () => {
+        try {
+            console.log('[CRON] Running automatic trash purge...');
+            const pool = require('./db/pool');
+            const interval = '30 days';
+            
+            const subResult = await pool.query('DELETE FROM submissions WHERE deleted_at < NOW() - INTERVAL \'30 days\'');
+            const formResult = await pool.query('DELETE FROM forms WHERE deleted_at < NOW() - INTERVAL \'30 days\'');
+            
+            if (subResult.rowCount > 0 || formResult.rowCount > 0) {
+                console.log(`[CRON] Purged ${subResult.rowCount} submissions and ${formResult.rowCount} forms older than 30 days`);
+            }
+        } catch (err) {
+            console.error('[CRON] Trash purge failed:', err);
+        }
+    }, 24 * 60 * 60 * 1000);
 });
 
 module.exports = app;

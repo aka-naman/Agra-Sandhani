@@ -12,9 +12,16 @@ function enforceIsolation(sql, userId, userRole, selectedFormIds = []) {
     const isAdmin = userRole === 'admin';
     const ownerSubquery = `(SELECT role FROM users WHERE id = f.user_id)`;
     
-    const isolationFilter = `(f.user_id = ${userId} OR (${ownerSubquery} != 'admin' AND (f.id IN (SELECT form_id FROM form_permissions WHERE user_id = ${userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > NOW())) OR f.user_id IN (SELECT grantor_id FROM user_delegations WHERE grantee_id = ${userId} AND expires_at > NOW()))))`;
-    const adminFilter = `(f.user_id = ${userId} OR ${ownerSubquery} != 'admin')`;
+    // Base filters: User access + Not deleted
+    const isolationFilter = `(f.user_id = ${userId} OR (${ownerSubquery} != 'admin' AND (f.id IN (SELECT form_id FROM form_permissions WHERE user_id = ${userId} AND status = 'approved' AND (expires_at IS NULL OR expires_at > NOW())) OR f.user_id IN (SELECT grantor_id FROM user_delegations WHERE grantee_id = ${userId} AND expires_at > NOW())))) AND f.deleted_at IS NULL`;
+    const adminFilter = `(f.user_id = ${userId} OR ${ownerSubquery} != 'admin') AND f.deleted_at IS NULL`;
     
+    // Add submission soft-delete check if table 's' is used
+    let submissionFilter = '';
+    if (sql.toLowerCase().includes('submissions s') || sql.toLowerCase().includes('submissions as s')) {
+        submissionFilter = 's.deleted_at IS NULL';
+    }
+
     // 1. Ensure the SQL actually has the forms join if we are going to use 'f'
     let finalSql = sql;
     if (!sql.toLowerCase().includes('join forms f')) {
@@ -25,7 +32,7 @@ function enforceIsolation(sql, userId, userRole, selectedFormIds = []) {
         }
     }
 
-    // 2. Build the combined security + selection filter
+    // 2. Build the combined security + selection + deletion filters
     let filters = [];
     if (isAdmin) {
         filters.push(adminFilter);
@@ -33,6 +40,8 @@ function enforceIsolation(sql, userId, userRole, selectedFormIds = []) {
         filters.push(isolationFilter);
     }
     
+    if (submissionFilter) filters.push(submissionFilter);
+
     if (selectedFormIds && selectedFormIds.length > 0) {
         filters.push(`f.id IN (${selectedFormIds.join(',')})`);
     }
@@ -81,8 +90,8 @@ router.get('/schema', authenticate, async (req, res) => {
                 AND (fp.expires_at IS NULL OR fp.expires_at > NOW())
             LEFT JOIN user_delegations ud ON f.user_id = ud.grantor_id AND ud.grantee_id = $1
                 AND ud.expires_at > NOW()
-            WHERE (f.user_id = $1)
-               OR (u.role != 'admin' AND ($2 = 'admin' OR fp.status = 'approved' OR ud.id IS NOT NULL))
+            WHERE f.deleted_at IS NULL AND ((f.user_id = $1)
+               OR (u.role != 'admin' AND ($2 = 'admin' OR fp.status = 'approved' OR ud.id IS NOT NULL)))
             ORDER BY f.name ASC
         `, [req.user.id, req.user.role]);
 
@@ -350,6 +359,7 @@ router.post('/discovery', authenticate, async (req, res) => {
                 WHERE form_version_id IN (
                     SELECT id FROM form_versions WHERE form_id = ANY($2)
                 )
+                AND deleted_at IS NULL
                 AND data_json->>$1 IS NOT NULL
                 AND data_json->>$1 != ''
                 LIMIT 3
@@ -405,6 +415,7 @@ router.post('/suggestions', authenticate, async (req, res) => {
                 WHERE form_version_id IN (
                     SELECT id FROM form_versions WHERE form_id = ANY($2)
                 )
+                AND deleted_at IS NULL
                 AND data_json->>$1 IS NOT NULL
                 AND data_json->>$1 != ''
                 LIMIT 5

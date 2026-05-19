@@ -83,7 +83,10 @@ node db/add-scaling-indexes.js
 # 12. Soft-Required Support (Remarks column)
 node db/add-remarks-column.js
 
-# 13. Final Seeding (Universities & Initial Lists)
+# 13. Monitoring Suite (System Logs & Admin Analytics)
+node db/admin-upgrade.js
+
+# 14. Final Seeding (Universities & Initial Lists)
 node db/seed.js
 ```
 

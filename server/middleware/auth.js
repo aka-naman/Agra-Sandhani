@@ -36,7 +36,7 @@ const checkFormAccess = async (formId, userId, userRole) => {
         `SELECT f.*, u.role as owner_role 
          FROM forms f 
          JOIN users u ON f.user_id = u.id 
-         WHERE f.id = $1`, 
+         WHERE f.id = $1 AND f.deleted_at IS NULL`, 
         [formId]
     );
     if (formResult.rows.length === 0) return { exists: false, hasAccess: false };
@@ -100,7 +100,7 @@ const checkFormOwnership = async (formId, userId, userRole) => {
         `SELECT f.*, u.role as owner_role 
          FROM forms f 
          JOIN users u ON f.user_id = u.id 
-         WHERE f.id = $1`, 
+         WHERE f.id = $1 AND f.deleted_at IS NULL`, 
         [formId]
     );
     if (result.rows.length === 0) {

@@ -212,6 +212,11 @@ router.put('/:formId/submissions/:submissionId', authenticate, async (req, res) 
         const access = await checkFormAccess(req.params.formId, req.user.id, req.user.role);
         if (!access.hasAccess) return res.status(403).json({ error: 'Access denied' });
 
+        // 0. PREVENT EDITING DELETED
+        const deletedCheck = await client.query('SELECT deleted_at FROM submissions WHERE id = $1', [req.params.submissionId]);
+        if (deletedCheck.rows.length === 0) return res.status(404).json({ error: 'Submission not found' });
+        if (deletedCheck.rows[0].deleted_at) return res.status(400).json({ error: 'Cannot edit a deleted submission' });
+
         await client.query('BEGIN');
 
         // 1. CREATE AUDIT SNAPSHOT
@@ -265,6 +270,16 @@ router.put('/:formId/submissions/:submissionId', authenticate, async (req, res) 
 
         await client.query('UPDATE submissions SET data_json = $1, remarks = $2 WHERE id = $3', [dataJson, newRemarks, req.params.submissionId]);
 
+        // Log the edit action
+        await client.query(
+            'INSERT INTO system_logs (action_type, user_id, details) VALUES ($1, $2, $3)',
+            ['edit_submission', req.user.id, JSON.stringify({
+                submission_id: req.params.submissionId,
+                form_id: req.params.formId,
+                form_name: (await client.query('SELECT name FROM forms WHERE id = $1', [req.params.formId])).rows[0].name
+            })]
+        );
+
         await client.query('COMMIT');
         res.json({ message: 'Submission updated and audited' });
     } catch (err) {
@@ -282,6 +297,17 @@ router.delete('/:formId/submissions/:submissionId', authenticate, async (req, re
         if (!access.hasAccess) return res.status(403).json({ error: 'Access denied' });
 
         await pool.query('UPDATE submissions SET deleted_at = NOW() WHERE id = $1', [req.params.submissionId]);
+
+        // Log the delete action
+        await pool.query(
+            'INSERT INTO system_logs (action_type, user_id, details) VALUES ($1, $2, $3)',
+            ['delete_submission', req.user.id, JSON.stringify({
+                submission_id: req.params.submissionId,
+                form_id: req.params.formId,
+                form_name: (await pool.query('SELECT name FROM forms WHERE id = $1', [req.params.formId])).rows[0].name
+            })]
+        );
+
         res.json({ message: 'Submission deleted (archived)' });
     } catch (err) {
         res.status(500).json({ error: 'Delete failed' });
