@@ -1,0 +1,7 @@
+client/src/pages/LoginPage.jsx:
+client/src/pages/RegisterPage.jsx
+  client/src/pages/DashboardPage.jsx
+  client/src/pages/AdminDashboardPage.jsx
+   client/src/pages/FormBuilderPage.jsx
+  client/src/pages/FileExplorerPage.jsx
+  client/src/index.css
